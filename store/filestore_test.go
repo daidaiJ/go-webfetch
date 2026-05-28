@@ -43,9 +43,12 @@ func TestFileStore_WriteMarkdown(t *testing.T) {
 		t.Errorf("totalChars = %d, want %d", totalChars, len(content))
 	}
 
-	// 预览应该包含前 5 行
+	// 预览应该包含前 5 行有效内容（跳过空行）
 	if !strings.Contains(summary, "# Hello") {
 		t.Errorf("summary should contain first line: %s", summary)
+	}
+	if strings.Contains(summary, "\n\n") {
+		t.Errorf("summary should not contain blank lines: %q", summary)
 	}
 
 	// 验证文件内容
@@ -99,5 +102,100 @@ func TestSlugify(t *testing.T) {
 				t.Errorf("slugify(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPreviewSkipsBlankLinesAndSeparators(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := NewFileStore(dir, time.Hour)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	// 内容含大量空行和分隔线
+	content := strings.Join([]string{
+		"",
+		"",
+		"# Title",
+		"",
+		"* * *",
+		"Some content here",
+		"---",
+		"",
+		"More content",
+		"___",
+		"Even more",
+		"- - -",
+		"Final line",
+	}, "\n")
+
+	_, _, _, summary, err := fs.WriteMarkdown(content, "Test", "https://example.com")
+	if err != nil {
+		t.Fatalf("WriteMarkdown: %v", err)
+	}
+
+	lines := strings.Split(summary, "\n")
+	if len(lines) != 5 {
+		t.Errorf("expected 5 preview lines, got %d: %q", len(lines), summary)
+	}
+	// 不应含空行或分隔线
+	for _, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if trimmed == "" {
+			t.Errorf("preview contains blank line: %q", summary)
+		}
+		if separatorRe.MatchString(trimmed) {
+			t.Errorf("preview contains separator line: %q", l)
+		}
+	}
+	// 应包含有意义的内容
+	if !strings.Contains(summary, "# Title") {
+		t.Errorf("summary missing '# Title': %q", summary)
+	}
+	if !strings.Contains(summary, "Some content here") {
+		t.Errorf("summary missing 'Some content here': %q", summary)
+	}
+}
+
+func TestPreviewFromReaderSkipsBlanksAndSeparators(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := NewFileStore(dir, time.Hour)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	input := strings.Join([]string{
+		"",
+		"---",
+		"Real line 1",
+		"",
+		"* * *",
+		"Real line 2",
+		"___",
+		"Real line 3",
+		"Real line 4",
+		"Real line 5",
+		"Real line 6",
+	}, "\n")
+
+	_, _, _, summary, err := fs.WriteMarkdownFromReader(strings.NewReader(input), "Test", "https://example.com")
+	if err != nil {
+		t.Fatalf("WriteMarkdownFromReader: %v", err)
+	}
+
+	lines := strings.Split(summary, "\n")
+	if len(lines) != 5 {
+		t.Errorf("expected 5 preview lines, got %d: %q", len(lines), summary)
+	}
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "" {
+			t.Errorf("preview contains blank line: %q", summary)
+		}
+		if separatorRe.MatchString(strings.TrimSpace(l)) {
+			t.Errorf("preview contains separator: %q", l)
+		}
+	}
+	if !strings.Contains(summary, "Real line 1") {
+		t.Errorf("summary missing 'Real line 1': %q", summary)
 	}
 }

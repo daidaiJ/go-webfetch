@@ -32,12 +32,8 @@ func (fs *FileStore) WriteMarkdown(content string, title string, sourceURL strin
 	totalLines = len(lines)
 	totalChars = len(content)
 
-	// 生成预览（前 5 行）
-	previewLines := 5
-	if previewLines > totalLines {
-		previewLines = totalLines
-	}
-	summary = strings.Join(lines[:previewLines], "\n")
+	// 生成预览（前 5 行有效内容，跳过空行和分隔线）
+	summary = strings.Join(extractPreview(lines, 5), "\n")
 
 	// 生成文件名
 	filename := fs.buildFilename(title, sourceURL)
@@ -73,7 +69,7 @@ func (fs *FileStore) WriteMarkdownFromReader(r io.Reader, title string, sourceUR
 		line := scanner.Text()
 		lineCount++
 		charCount += len(line) + 1 // +1 for newline
-		if len(previewLines) < 5 {
+		if len(previewLines) < 5 && !isBlankOrSeparator(line) {
 			previewLines = append(previewLines, line)
 		}
 		writer.WriteString(line)
@@ -141,8 +137,35 @@ func shortHash(s string) string {
 
 var slugRe = regexp.MustCompile(`[^\p{L}\p{N}]+`)
 
+// separatorRe 匹配 Markdown 分隔线：---、***、___ 及其空格变体
+var separatorRe = regexp.MustCompile(`^[\s]*([-*_]\s*){3,}[\s]*$`)
+
 func slugify(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = slugRe.ReplaceAllString(s, "-")
 	return strings.Trim(s, "-")
+}
+
+// isBlankOrSeparator 判断行是否为空行或 Markdown 分隔线
+func isBlankOrSeparator(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return true
+	}
+	return separatorRe.MatchString(trimmed)
+}
+
+// extractPreview 从行切片中提取前 n 行有意义的内容（跳过空行和分隔线）
+func extractPreview(lines []string, n int) []string {
+	var result []string
+	for _, line := range lines {
+		if isBlankOrSeparator(line) {
+			continue
+		}
+		result = append(result, line)
+		if len(result) >= n {
+			break
+		}
+	}
+	return result
 }
